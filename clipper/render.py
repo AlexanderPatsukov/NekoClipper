@@ -150,8 +150,10 @@ def plan(L: dict, W: int, H: int) -> dict:
     # слои: куски кадра и картинки, каждый в своё время (текстовые слои рисуются субтитрами)
     for lay in L.get("layers") or []:
         kind = lay.get("kind")
-        if lay.get("hidden") or kind not in ("crop", "image") or (kind == "image" and not lay.get("asset")):
+        if lay.get("hidden") or kind not in ("crop", "image"):
             continue
+        if kind == "image" and not (lay.get("asset") and (ASSETS / Path(lay["asset"]).name).exists()):
+            continue        # картинки нет (пресет с другого компа) — слой пропускаем, а не роняем рендер
         box = lay.get("box") or {}
         w = min(OW, _even(_clamp(box.get("w", 0.3), 0.02, 1) * OW))
         h = min(OH, _even(_clamp(box.get("h", 0.1), 0.01, 1) * OH))
