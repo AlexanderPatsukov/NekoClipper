@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NekoClipper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🐾%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">🐾</span>Neko<b>Clipper</b></div>
+  <form id="addForm">
+    <input id="source" placeholder="Ссылка на стрим (YouTube, Twitch) или путь к видеофайлу" autocomplete="off">
+    <select id="dlQ" title="В каком качестве скачивать стрим (если у стрима нет 60 fps — скачается 30)"><option value="720/60">720p 60fps</option><option value="1080/60">1080p 60fps</option><option value="1440/60">1440p 60fps</option><option value="2160/60">4K 60fps</option><option value="0/60">Лучшее, что есть</option><option value="1080/30">1080p 30fps</option><option value="720/30">720p 30fps</option></select>
+    <label class="chk" title="Сразу отрендерить все найденные клипы"><input type="checkbox" id="autoRender"> сразу рендерить</label>
+    <button class="primary">Нарезать</button>
+  </form>
+  <button id="langBtn" class="ghost" title="Язык / Language">RU</button>
+  <button id="settingsBtn" class="ghost" title="Настройки">⚙ Настройки</button>
+</header>
+
+<main>
+  <aside id="projects"><h3>Стримы</h3><div id="projectList"></div></aside>
+
+  <section id="empty" class="empty">
+    <h1>Вставь ссылку на стрим — получишь шортсы</h1>
+    <p>Программа скачает запись, распознает речь, найдёт самые живые моменты по громкости, чату и смыслу
+       и соберёт вертикальные клипы с субтитрами. Любой клип можно поправить в редакторе или вырезать свой вручную.</p>
+  </section>
+
+  <section id="work" hidden>
+    <div class="titleRow">
+      <div>
+        <h2 id="pTitle"></h2>
+        <div id="pMeta" class="muted"></div>
+      </div>
+      <div class="actions">
+        <button id="reanalyzeBtn" class="ghost" title="Заново найти моменты (видео и расшифровка не пересчитываются)">↻ Найти моменты заново</button>
+        <button id="redlBtn" class="ghost" title="Скачать видео стрима заново в другом качестве (речь и клипы останутся)">⬇ Качество видео</button>
+        <button id="openBtn" class="ghost">📂 Папка с клипами</button>
+        <button id="deleteBtn" class="ghost danger">Удалить</button>
+      </div>
+    </div>
+    <div id="job" class="job" hidden><div class="bar"><i id="jobBar"></i></div><span id="jobText"></span></div>
+    <div id="warnings"></div>
+
+    <div class="stage">
+      <div class="playerWrap"><video id="video" preload="metadata"></video></div>
+      <canvas id="timeline" height="96"></canvas>
+      <div class="transport">
+        <button id="playBtn" class="ghost" title="Пробел">▶</button>
+        <span id="curTime" class="mono">00:00</span>
+        <span class="sep"></span>
+        <button id="inBtn" class="ghost" title="Клавиша I">[ Начало</button>
+        <span id="rangeText" class="mono range">—</span>
+        <button id="outBtn" class="ghost" title="Клавиша O">Конец ]</button>
+        <button id="loopBtn" class="ghost" title="Проиграть выделенный отрезок по кругу">⟲ Отрезок</button>
+        <span class="grow"></span>
+        <button id="newClipBtn" class="primary" title="Enter">✂ Вырезать клип и открыть редактор</button>
+      </div>
+      <div class="hint muted">Потяни мышью по шкале, чтобы выделить отрезок · колесо — масштаб · Shift+колесо — прокрутка · I / O — начало и конец · ← → — перемотка</div>
+    </div>
+
+    <div class="clipsHead">
+      <h3>Клипы <span id="clipCount" class="muted"></span></h3>
+      <button id="renderAllBtn" class="primary">Отрендерить все</button>
+    </div>
+    <div id="clips"></div>
+  </section>
+</main>
+
+<!-- ===================== редактор шортса ===================== -->
+<section id="editor" hidden>
+  <div class="edHead">
+    <button id="edBack" class="ghost">← К списку</button>
+    <button id="edPrev" class="ghost" title="Предыдущий клип">‹</button>
+    <button id="edNext" class="ghost" title="Следующий клип">›</button>
+    <input id="edTitle" maxlength="80" placeholder="Заголовок шортса">
+    <span id="edStatus" class="muted"></span>
+    <a id="edPlainDl" class="btn ghost" hidden title="Скачать вырезанный отрезок без оформления">⬇ Без оформления</a>
+    <button id="edPlain" class="ghost" title="Просто вырезать этот отрезок из стрима как есть: исходный кадр, без раскладки и текста">✂ Вырезать как есть</button>
+    <button id="edView" class="ghost" hidden>▶ Готовый шортс</button>
+    <button id="edRender" class="primary">Сделать шортс</button>
+  </div>
+  <div class="edBody">
+    <div class="edSource">
+      <div class="lbl">Исходный кадр — рамки можно двигать и тянуть за края <span id="edMaskInfo"></span></div>
+      <div class="playerWrap">
+        <video id="edVideo" preload="metadata"></video>
+        <canvas id="edOverlay"></canvas>
+      </div>
+      <div class="trimHead">
+        <span class="muted">Шкала клипа: тяни по шкале — перемотка · голубые края — длина клипа · колесо — масштаб · Alt+тяни (или средняя кнопка, Shift+колесо) — прокрутка</span>
+        <span class="grow"></span>
+        <button id="trimOut" class="ghost" title="Отдалить">−</button><button id="trimIn" class="ghost" title="Приблизить">+</button>
+        <button id="trimFit" class="ghost" title="Показать клип целиком">Клип</button><button id="trimAll" class="ghost" title="Показать весь стрим">Весь стрим</button>
+      </div>
+      <canvas id="edTrim" height="84"></canvas>
+      <div class="layTrack">
+        <div class="audBar"><b>🎬 Слои</b><span class="muted">полоска — когда слой виден: тяни за края, двигай · щелчок — выбрать слой</span></div>
+        <canvas id="edLayers"></canvas>
+      </div>
+      <div class="audTrack">
+        <div class="audBar">
+          <b>🔊 Звуковая дорожка</b>
+          <span class="muted">выдели кусок мышкой · жёлтая линия — громкость, её можно тянуть · двойной щелчок — выделить слово</span>
+          <span class="grow"></span>
+          <button id="audAuto" class="ghost" title="Найти мат в расшифровке и поставить на него «пик»">Запикать мат</button>
+          <label title="Общая громкость всего клипа">Весь клип <input type="range" id="audVol" min="0" max="200" step="5" value="100"><span id="audVolVal" class="mono">100%</span></label>
+        </div>
+        <canvas id="edAudio"></canvas>
+        <div class="audSel" id="audSel">
+          <span id="audSelInfo" class="mono"></span>
+          <span class="audActs">
+            <button data-a="play" class="ghost" title="Прослушать выделенное">▶ Прослушать</button>
+            <button data-a="bleep" class="ghost" title="Заглушить и поставить «пик»; слово в субтитрах закроется звёздочками">🔇 Пик</button>
+            <button data-a="mute" class="ghost" title="Вырезать звук на этом куске — будет тишина">✂ Вырезать звук</button>
+            <button data-a="down" class="ghost" title="Тише в 2 раза">− Тише</button>
+            <button data-a="up" class="ghost" title="Громче в 1.5 раза">+ Громче</button>
+            <label title="Громкость куска">Громкость <input type="range" id="audGain" min="0" max="400" step="5" value="100"><span id="audGainVal" class="mono">100%</span></label>
+            <button data-a="del" class="ghost danger" title="Delete — вернуть звук как был">✕ Убрать правку</button>
+          </span>
+        </div>
+      </div>
+      <div class="transport">
+        <button id="edPlay" class="ghost" title="Пробел">▶</button>
+        <span id="edTime" class="mono">00:00</span>
+        <span class="sep"></span>
+        <span class="muted">Начало</span>
+        <span class="nudge"><button data-n="start-5">−5</button><button data-n="start-1">−1</button><button data-n="start-0.2">−.2</button><button data-n="start0.2">+.2</button><button data-n="start1">+1</button><button data-n="start5">+5</button></span>
+        <span id="edRange" class="mono range"></span>
+        <span class="muted">Конец</span>
+        <span class="nudge"><button data-n="end-5">−5</button><button data-n="end-1">−1</button><button data-n="end-0.2">−.2</button><button data-n="end0.2">+.2</button><button data-n="end1">+1</button><button data-n="end5">+5</button></span>
+      </div>
+      <div class="lbl subHead">Текст субтитров — исправь слово прямо здесь; стёртое слово не показывается <button id="subReset" class="ghost" hidden>Вернуть как было</button></div>
+      <div id="subEdit"></div>
+    </div>
+
+    <div class="edPreview"><canvas id="preview" width="540" height="960"></canvas>
+      <div class="muted pvHint">Окна вебки и игры: середина — перенос, углы — размер, стороны — обрезка · колесо — масштаб · двойной щелчок — вернуть как было</div></div>
+
+    <div class="edPanel">
+      <div class="group presetGroup">
+        <label class="lbl">Пресет</label>
+        <div class="row"><select id="presetSel"></select><button id="presetApply" class="ghost" title="Применить пресет к этому клипу">Применить</button></div>
+        <div class="row btns"><button id="presetSave" class="ghost">💾 Сохранить пресет</button><button id="presetAll" class="ghost" title="Применить выбранный пресет ко всем клипам стрима">На все клипы</button><button id="presetDel" class="ghost danger" title="Удалить выбранный пресет">✕</button></div>
+        <div class="muted small">Правки этого шортса остаются только в нём. «Сохранить пресет» — текущая разметка (окна, текст, логотипы, экспорт) станет основной для новых клипов.</div>
+      </div>
+      <div class="group">
+        <label class="lbl">Раскладка</label>
+        <div class="seg" data-seg="mode">
+          <button data-v="split" title="Вебка и игра стопкой, остальное — размытый фон">Вебка + игра</button>
+          <button data-v="pip" title="Игра на весь экран, вебка плашкой поверх">Вебка поверх</button>
+          <button data-v="fit_blur" title="Кадр целиком по ширине">Фон</button>
+          <button data-v="fill" title="Вырез 9:16 на весь экран">Заполнить</button>
+        </div>
+        <div class="row btns"><span>Готовые пресеты</span>
+          <button id="presetOsu" class="ghost" title="Вебка сверху целиком, под ней игровое поле 4:3 без обрезки">osu!</button>
+          <button id="presetWide" class="ghost" title="Вебка сверху, игра 16:9 заполняет остальное">Игра крупно</button>
+        </div>
+      </div>
+
+      <div class="group" data-modes="split pip">
+        <label class="lbl">Вебка</label>
+        <div class="seg" data-seg="cam_source">
+          <button data-v="auto" title="Искать вебку в каждом клипе">Авто</button>
+          <button data-v="manual" title="Своя рамка">Вручную</button>
+          <button data-v="off">Без вебки</button>
+        </div>
+        <div class="row btns"><span id="camInfo" class="muted"></span><button id="camRedetect" class="ghost">Найти заново</button></div>
+        <div class="seg" data-seg="cam_pos" data-modes="split">
+          <button data-v="top">Вебка сверху</button><button data-v="bottom">Вебка снизу</button>
+        </div>
+        <div class="row" data-modes="split"><span>Высота вебки <i class="muted">(0 — по пропорциям)</i></span><input type="range" data-l="cam_ratio" min="0" max="0.55" step="0.01"></div>
+        <div class="row" data-modes="pip"><span>Размер вебки</span><input type="range" data-l="pip_size" min="0.2" max="0.9" step="0.01"></div>
+        <div class="row"><span>Приближение вебки</span><input type="range" data-l="cam_zoom" min="1" max="2.5" step="0.05"></div>
+      </div>
+
+      <div class="group">
+        <label class="lbl">Игра</label>
+        <div class="seg" id="gameSeg">
+          <button data-g="full">Весь кадр</button><button data-g="43" title="Центральная часть 4:3 — игровое поле osu!">Центр 4:3</button><button data-g="custom" title="Потяни голубую рамку на исходном кадре">Своя</button>
+        </div>
+        <div class="row" data-modes="split"><span>Заполнение <i class="muted">(0 — целиком)</i></span><input type="range" data-l="game_zoom" min="0" max="1" step="0.01"></div>
+        <div class="row" data-modes="fit_blur"><span>Приближение</span><input type="range" data-l="zoom" min="1" max="2.5" step="0.05"></div>
+        <div class="row"><span>Сдвиг по горизонтали</span><input type="range" data-l="focus_x" min="0" max="1" step="0.01"></div>
+        <div class="row"><span>Сдвиг по вертикали</span><input type="range" data-l="focus_y" min="0" max="1" step="0.01"></div>
+      </div>
+
+      <div class="group" id="layersGroup">
+        <label class="lbl">Слои</label>
+        <div class="row btns"><button id="addText" class="ghost">+ Текст</button><button id="addImage" class="ghost">+ Картинка / лого</button><button id="addCrop" class="ghost" title="Любая часть исходного кадра отдельным окном">+ Кусок кадра</button></div>
+        <input type="file" id="assetFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+        <div id="layerList"></div>
+        <div id="layerProps" hidden>
+          <div class="row"><span>Название</span><input data-y="name" class="lname"></div>
+          <div data-kind="text">
+            <textarea data-y="text" rows="2" placeholder="Текст слоя (Enter — новая строка)"></textarea>
+            <div class="row"><span>Шрифт</span><select data-y="font" id="layerFont"></select></div>
+            <div class="row"><span>Размер</span><input type="range" data-y="size" min="16" max="260" step="2"></div>
+            <div class="row"><span>Оформление</span><select data-y="style"><option value="box">плашка</option><option value="outline">обводка</option><option value="none">без</option></select></div>
+            <div class="row colors"><span>Текст</span><input type="color" data-y="color"><span>Плашка / обводка</span><input type="color" data-y="bg"></div>
+            <div class="row" data-style="outline"><span>Толщина обводки</span><input type="range" data-y="outline" min="0" max="20" step="1"></div>
+            <div class="row" data-style="box"><span>Плотность плашки</span><input type="range" data-y="bg_op" min="0" max="1" step="0.05"></div>
+            <label class="chk"><input type="checkbox" data-y="bold"> Жирный</label>
+          </div>
+          <div data-kind="image" class="row btns"><span class="muted" id="layerImgInfo"></span><button id="replaceImg" class="ghost">Заменить картинку</button></div>
+          <div data-kind="crop" class="muted small">Что показывать — розовая рамка на исходном кадре слева; куда — окно на превью.</div>
+          <div class="row"><span>Непрозрачность</span><input type="range" data-y="opacity" min="0.05" max="1" step="0.05"></div>
+          <div class="row"><span>Плавно появляться, с</span><input type="range" data-y="fade" min="0" max="2" step="0.1"></div>
+          <div class="row ltime"><span>Показывать</span><input type="number" data-y="s" step="0.1" min="0" class="num" title="с какой секунды клипа"><i>–</i><input type="number" data-y="e" step="0.1" min="0" class="num" placeholder="конец" title="до какой секунды клипа"></div>
+          <div class="row btns"><button id="layerHere" class="ghost" title="Начать слой с текущего места плеера">С этого места</button><button id="layerToEnd" class="ghost">До конца клипа</button><button id="layerAll" class="ghost">Весь клип</button></div>
+          <div class="row btns"><button id="layerUp" class="ghost" title="Поверх других слоёв">▲ Выше</button><button id="layerDown" class="ghost">▼ Ниже</button><button id="layerDup" class="ghost">Копия</button><button id="layerDel" class="ghost danger" title="Delete">Удалить</button></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <label class="lbl">Чат стрима</label>
+        <label class="chk"><input type="checkbox" data-l="chat"> Показывать чат на шортсе</label>
+        <div class="row btns"><span id="chatInfo" class="muted"></span><button id="chatFetch" class="ghost" title="Скачать чат со стрима ещё раз (YouTube / Twitch)">Подтянуть чат</button></div>
+        <div class="row"><span>Размер текста</span><input type="range" data-l="chat_size" min="16" max="70" step="1"></div>
+        <div class="row"><span>Подложка</span><input type="range" data-l="chat_bg" min="0" max="0.9" step="0.05"></div>
+        <div class="row"><span>Показывать раньше <i class="muted" id="chatShiftVal"></i></span><input type="range" data-l="chat_shift" min="0" max="15" step="0.5" title="Чат реагирует с задержкой — можно показать сообщения чуть раньше"></div>
+        <div class="muted small">Щёлкни по сообщению, чтобы скрыть его с шортса:</div>
+        <div id="chatList" class="chatList"></div>
+      </div>
+
+      <div class="group">
+        <label class="lbl">Субтитры</label>
+        <label class="chk"><input type="checkbox" data-l="subtitles"> Показывать субтитры по словам</label>
+        <div class="row"><span>Шрифт</span><select data-l="font" id="fontSel"></select></div>
+        <div class="row"><span>Размер</span><input type="range" data-l="sub_size" min="36" max="150" step="2"></div>
+        <div class="row"><span>Высота на экране</span><input type="range" data-l="sub_pos" min="0.03" max="0.97" step="0.005"></div>
+        <div class="row"><span>Слов в строке</span><input type="range" data-l="sub_words" min="1" max="6" step="1"></div>
+        <div class="row"><span>Обводка</span><input type="range" data-l="sub_outline" min="0" max="16" step="1"></div>
+        <div class="row colors"><span>Цвет текста</span><input type="color" data-l="sub_color"><span>Активное слово</span><input type="color" data-l="sub_hi"></div>
+        <label class="chk"><input type="checkbox" data-l="uppercase"> ЗАГЛАВНЫМИ</label>
+      </div>
+
+      <div class="group">
+        <label class="lbl">Заголовок</label>
+        <label class="chk"><input type="checkbox" data-l="title_overlay"> Показывать заголовок на видео</label>
+        <div class="row"><span>Размер</span><input type="range" data-l="title_size" min="30" max="110" step="2"></div>
+        <div class="row colors"><span>Цвет текста</span><input type="color" data-l="title_fg"><span>Плашка</span><input type="color" data-l="title_bg"></div>
+      </div>
+
+      <div class="group">
+        <label class="lbl">Формат и рендер</label>
+        <div class="row"><span>Размер кадра</span><select id="fmtSel">
+          <option value="1080x1920">9:16 · 1080×1920</option><option value="720x1280">9:16 · 720×1280</option>
+          <option value="2160x3840">9:16 · 2160×3840 (4K)</option><option value="1080x1350">4:5 · 1080×1350</option>
+          <option value="1080x1080">1:1 · 1080×1080</option><option value="1920x1080">16:9 · 1920×1080</option>
+          <option value="custom">Свой размер</option></select></div>
+        <div class="row"><span>Ширина × высота</span><input type="number" data-l="out_w" min="240" max="3840" step="2" class="num"><input type="number" data-l="out_h" min="240" max="3840" step="2" class="num"></div>
+        <div class="row"><span>Кадров в секунду</span><select data-l="fps" data-num><option value="0">Как в стриме</option><option value="30">30</option><option value="60">60</option></select></div>
+        <label class="lbl sub">Экспорт</label>
+        <div class="row"><span>Контейнер</span><select data-l="container"><option value="mp4">MP4</option><option value="mov">MOV</option><option value="mkv">MKV</option><option value="webm">WebM</option></select></div>
+        <div class="row"><span>Кодек</span><select data-l="vcodec" id="vcodecSel"><option value="h264">H.264 — играет везде</option><option value="hevc">H.265 — меньше файл</option><option value="av1">AV1 — сильнее всего жмёт</option><option value="vp9">VP9</option><option value="prores">ProRes — для монтажа</option></select></div>
+        <div class="row"><span>Кодировать на</span><select data-l="hw"><option value="auto">видеокарте, если умеет</option><option value="gpu">видеокарте</option><option value="cpu">процессоре</option></select></div>
+        <div class="seg" data-seg="rate"><button data-v="quality" title="Битрейт подбирается сам под картинку">Постоянное качество</button><button data-v="bitrate" title="Задать битрейт вручную">Свой битрейт</button></div>
+        <div class="row" data-rate="quality"><span>Качество <i class="muted">(левее — лучше)</i></span><input type="range" data-l="quality" min="14" max="32" step="1"></div>
+        <div class="row" data-rate="bitrate"><span>Битрейт видео, Мбит/с</span><input type="number" data-l="bitrate" min="0.5" max="200" step="0.5" class="num"></div>
+        <div class="row"><span>Скорость</span><div class="seg" data-seg="speed"><button data-v="fast">быстро</button><button data-v="balanced">баланс</button><button data-v="quality">качественнее</button></div></div>
+        <div class="row"><span>Звук</span><select data-l="abitrate" data-num><option value="128">128 кбит/с</option><option value="192">192 кбит/с</option><option value="256">256 кбит/с</option><option value="320">320 кбит/с</option></select></div>
+        <div class="muted small" id="exportInfo"></div>
+      </div>
+
+      <div class="group">
+        <label class="lbl">Фон и расположение</label>
+        <div class="row"><span>Затемнение фона</span><input type="range" data-l="bg_dim" min="0" max="0.7" step="0.02"></div>
+        <div class="row btns"><span>Блоки сдвинуты вручную</span><button id="resetPos" class="ghost">Вернуть на место</button></div>
+      </div>
+      <div class="muted note">Настройки сохраняются сами и запоминаются: следующий клип и новые стримы откроются с ними же.</div>
+    </div>
+  </div>
+</section>
+
+<dialog id="redlDlg">
+  <form method="dialog">
+    <h3>Перекачать видео стрима</h3>
+    <p class="muted small" id="redlNow"></p>
+    <label>Качество<select id="redlQ"><option value="720/60">720p 60fps</option><option value="1080/60">1080p 60fps</option><option value="1440/60">1440p 60fps</option><option value="2160/60">4K 60fps</option><option value="0/60">Лучшее, что есть</option><option value="1080/30">1080p 30fps</option><option value="720/30">720p 30fps</option></select></label>
+    <label>Кодек<select id="redlCodec"><option value="auto">авто</option><option value="h264">только H.264</option><option value="any">любой (VP9/AV1)</option></select></label>
+    <p class="muted small">Скачается только видео. Расшифровка, найденные моменты и твои клипы останутся. Если такого качества у стрима нет, скачается ближайшее ниже.</p>
+    <div class="row btns end"><button type="button" id="redlCancel" class="ghost">Отмена</button><button type="button" id="redlGo" class="primary">Перекачать</button></div>
+  </form>
+</dialog>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h3>Настройки</h3>
+    <div class="nekoRow">
+      <a class="subBtn" href="https://www.youtube.com/@nekorezka" target="_blank" rel="noopener"><span class="yt">▶</span>Subscribe Nekorezka</a>
+      <label class="langPick">Язык / Language<select id="langSel"><option value="ru">Русский</option><option value="en">English</option></select></label>
+    </div>
+    <fieldset><legend>Нейросеть (любой OpenAI-совместимый сервер)</legend>
+      <label class="chk"><input type="checkbox" data-k="llm.enabled"> Использовать LLM для выбора моментов и заголовков</label>
+      <label>Адрес сервера<input data-k="llm.base_url" placeholder="http://127.0.0.1:5000/v1"></label>
+      <label>API-ключ (если нужен)<input data-k="llm.api_key" type="password" placeholder="пусто для локальной модели"></label>
+      <label>Модель<input data-k="llm.model" placeholder="пусто — первая модель с сервера"></label>
+      <div class="row btns"><button type="button" id="llmTest" class="ghost">Проверить связь</button><span id="llmResult" class="muted"></span></div>
+    </fieldset>
+    <fieldset><legend>Распознавание речи</legend>
+      <label>Модель Whisper<select data-k="whisper.model"><option>large-v3-turbo</option><option>large-v3</option><option>medium</option><option>small</option></select></label>
+      <label>Язык (пусто — авто)<input data-k="whisper.language" placeholder="ru, en…"></label>
+    </fieldset>
+    <fieldset><legend>Моменты</legend>
+      <div class="grid3">
+        <label>Сколько клипов (0 — авто)<input type="number" data-k="highlights.count" min="0" max="60"></label>
+        <label>Мин. длина, с<input type="number" data-k="highlights.min_len" min="5" max="120"></label>
+        <label>Макс. длина, с<input type="number" data-k="highlights.max_len" min="10" max="180"></label>
+      </div>
+    </fieldset>
+    <fieldset><legend>Скачивание стримов</legend>
+      <div class="grid3">
+        <label>Разрешение<select data-k="download.max_height"><option value="720">до 720p</option><option value="1080">до 1080p</option><option value="1440">до 1440p</option><option value="2160">до 4K</option><option value="0">лучшее</option></select></label>
+        <label>Кадров в секунду<select data-k="download.fps"><option value="60">60, если есть</option><option value="30">30</option></select></label>
+        <label>Кодек<select data-k="download.codec"><option value="auto">авто</option><option value="h264">только H.264</option><option value="any">любой (VP9/AV1)</option></select></label>
+      </div>
+      <div class="muted small">«Авто»: до 1080p берётся H.264 (быстрее режется), выше — VP9/AV1, потому что YouTube отдаёт 1440p и 4K только в них.</div>
+    </fieldset>
+    <fieldset><legend>Рендер</legend>
+      <label class="chk"><input type="checkbox" data-k="render.normalize_audio"> Выравнивать громкость</label>
+    </fieldset>
+    <div class="row btns end"><button type="button" id="settingsCancel" class="ghost">Отмена</button><button type="button" id="settingsSave" class="primary">Сохранить</button></div>
+  </form>
+</dialog>
+
+<dialog id="viewer"><video id="viewerVideo" controls loop></video><div class="row btns end"><a id="viewerDownload" class="btn ghost">Скачать</a><button id="viewerClose" class="ghost">Закрыть</button></div></dialog>
+<div id="toast" hidden></div>
+<script src="/static/i18n.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

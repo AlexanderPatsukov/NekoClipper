@@ -1,0 +1,8 @@
+yt-dlp
+faster-whisper
+fastapi
+uvicorn[standard]
+requests
+numpy
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
