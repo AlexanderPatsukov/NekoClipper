@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
         "device": "auto",       # auto | cuda | cpu
         "language": "",         # пусто = автоопределение
     },
-    "download": {"max_height": 1080, "fps": 60, "codec": "auto"},   # max_height 0 — лучшее; codec auto|h264|any
+    "download": {"max_height": 1080, "fps": 60, "codec": "auto", "proxy": ""},   # max_height 0 — лучшее; codec auto|h264|any
     "highlights": {
         "count": 0,             # 0 = авто (примерно 1 клип на 5 минут стрима)
         "min_len": 18,

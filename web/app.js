@@ -27,7 +27,7 @@ async function refreshList() {
   S.projects = d.projects; S.jobs = d.jobs;
   $('#projectList').innerHTML = S.projects.map(p => {
     const j = S.jobs.find(j => j.pid === p.id && j.kind === 'analyze');
-    const sub = j ? esc(j.stage) : p.status === 'error' ? 'ошибка' : `${fmt(p.duration || 0)} · клипов: ${p.clips}`;
+    const sub = j ? esc(j.stage) : p.status === 'error' ? 'ошибка' : p.status !== 'ready' ? 'прервано' : `${fmt(p.duration || 0)} · клипов: ${p.clips}`;
     return `<div class="proj ${p.id === S.pid ? 'on' : ''}" data-id="${p.id}"><b title="${esc(p.title)}">${esc(p.title)}</b><span class="muted">${sub}</span>${j ? `<div class="mini"><i style="width:${(j.progress * 100).toFixed(0)}%"></i></div>` : ''}</div>`;
   }).join('') || '<div class="muted" style="padding:6px">Пока пусто</div>';
   if (!S.pid && S.projects.length) openProject(S.projects[0].id);
@@ -71,6 +71,8 @@ function renderHead() {
   $('#job').hidden = !j;
   if (j) { $('#jobBar').style.width = (j.progress * 100).toFixed(1) + '%'; $('#jobText').textContent = `${j.stage} — ${(j.progress * 100).toFixed(0)}%`; }
   $('#reanalyzeBtn').disabled = !!j || !p.width;
+  $('#resumeBtn').hidden = !!j || p.status === 'ready' || !(p.url || p.source_path);   // ошибка или программу закрыли посреди скачивания
+  $('#resumeBtn').textContent = p.width ? '⟳ Продолжить обработку' : '⟳ Продолжить скачивание';
   let w = (p.warnings || []).map(x => `<div class="warn">${esc(x)}</div>`).join('');
   if (p.status === 'error') w += `<div class="warn err">Ошибка: ${esc(p.error)}</div>`;
   $('#warnings').innerHTML = w;
@@ -1449,7 +1451,8 @@ $('#renderAllBtn').onclick = run(async () => {
   const force = stale && confirm('Часть готовых шортсов изменена после рендера. Перерендерить и их тоже?');
   const r = await api(`/api/projects/${S.pid}/render_all`, 'POST', { force }); toast(r.queued ? `В очереди на рендер: ${r.queued}` : 'Все клипы уже отрендерены'); pollProject();
 });
-$('#reanalyzeBtn').onclick = run(async () => { if (!confirm('Найти моменты заново? Неотрендеренные авто-клипы будут заменены, ручные и готовые останутся.')) return; await api(`/api/projects/${S.pid}/reanalyze`, 'POST'); pollProject(); });
+$('#resumeBtn').onclick = run(async () => { $('#resumeBtn').hidden = true; await api(`/api/projects/${S.pid}/resume`, 'POST'); pollProject(); refreshList(); });
+$('#reanalyzeBtn').onclick =run(async () => { if (!confirm('Найти моменты заново? Неотрендеренные авто-клипы будут заменены, ручные и готовые останутся.')) return; await api(`/api/projects/${S.pid}/reanalyze`, 'POST'); pollProject(); });
 $('#openBtn').onclick = run(() => api(`/api/projects/${S.pid}/open`, 'POST'));
 $('#deleteBtn').onclick = run(async () => {
   if (!confirm(`Удалить «${S.cur.title}» вместе со скачанным видео и всеми клипами?`)) return;

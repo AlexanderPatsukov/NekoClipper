@@ -107,6 +107,10 @@ def _run_redownload(j: dict) -> None:
     update_project(p["id"], lambda p: p.update({k: info[k] for k in ("width", "height", "fps") if k in info}))
 
 
+def resume(pid: str) -> dict:
+    return _job("analyze", pid, auto_render=False)
+
+
 def reanalyze(pid: str) -> dict:
     """Заново найти моменты (скачанное видео и расшифровка переиспользуются)."""
     return _job("analyze", pid, auto_render=False, fresh=True)

@@ -115,6 +115,15 @@ def redownload(pid: str, body: dict = Body(...)):
     return pipeline.redownload(pid, dl)
 
 
+@app.post("/api/projects/{pid}/resume")
+def resume(pid: str):
+    """Продолжить прерванное скачивание/анализ: недокачанные куски (.part) подхватываются."""
+    _project(pid)
+    if _jobs(pid):
+        return {"ok": True}
+    return pipeline.resume(pid)
+
+
 @app.post("/api/projects/{pid}/reanalyze")
 def reanalyze(pid: str):
     _project(pid)

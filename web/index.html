@@ -36,6 +36,7 @@
         <div id="pMeta" class="muted"></div>
       </div>
       <div class="actions">
+        <button id="resumeBtn" class="primary" hidden title="Докачать стрим с места обрыва и продолжить обработку">⟳ Продолжить скачивание</button>
         <button id="reanalyzeBtn" class="ghost" title="Заново найти моменты (видео и расшифровка не пересчитываются)">↻ Найти моменты заново</button>
         <button id="redlBtn" class="ghost" title="Скачать видео стрима заново в другом качестве (речь и клипы останутся)">⬇ Качество видео</button>
         <button id="openBtn" class="ghost">📂 Папка с клипами</button>
@@ -318,6 +319,7 @@
         <label>Кадров в секунду<select data-k="download.fps"><option value="60">60, если есть</option><option value="30">30</option></select></label>
         <label>Кодек<select data-k="download.codec"><option value="auto">авто</option><option value="h264">только H.264</option><option value="any">любой (VP9/AV1)</option></select></label>
       </div>
+      <label>Прокси (если YouTube не грузит)<input type="text" data-k="download.proxy" placeholder="socks5://127.0.0.1:1080 или http://адрес:порт"></label>
       <div class="muted small">«Авто»: до 1080p берётся H.264 (быстрее режется), выше — VP9/AV1, потому что YouTube отдаёт 1440p и 4K только в них.</div>
     </fieldset>
     <fieldset><legend>Рендер</legend>

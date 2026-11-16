@@ -20,7 +20,7 @@ SR = 16000
 
 def fetch_info(url: str) -> dict:
     import yt_dlp
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as y:
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True, **net_opts()}) as y:
         info = y.extract_info(url, download=False)
     return {
         "id": f"{(info.get('extractor_key') or 'video').lower()}_{info.get('id')}",
@@ -41,6 +41,43 @@ def format_sort(dl: dict) -> list[str]:
     return ([f"res:{h}"] if h else ["res"]) + [f"fps:{fps}"] + (["vcodec:h264"] if h264 else []) + ["acodec:m4a"]
 
 
+def net_opts(dl: dict | None = None) -> dict:
+    """Настройки сети для yt-dlp: упорно докачивать при обрывах (в РФ YouTube часто рвёт соединение),
+    недокачанное (.part) не удалять, мелкие куски — меньше теряем при обрыве; прокси из настроек."""
+    dl = dl or load_config().get("download") or {}
+    o = {"retries": float("inf"), "fragment_retries": float("inf"), "file_access_retries": 10, "extractor_retries": 5,
+         "socket_timeout": 30, "continuedl": True, "http_chunk_size": 2 * 1024 * 1024,
+         "retry_sleep_functions": {"http": lambda n: min(30, 1 + n), "fragment": lambda n: min(30, 1 + n)}}
+    if (dl.get("proxy") or "").strip():
+        o["proxy"] = dl["proxy"].strip()
+    return o
+
+
+NET_ERRORS = ("bytes read", "timed out", "timeout", "Connection", "connection", "reset", "IncompleteRead",
+              "10054", "10060", "10053", "getaddrinfo", "Temporary failure", "HTTP Error 5", "HTTP Error 429",
+              "Unable to download", "Remote end closed", "SSL", "EOF occurred")
+
+
+def _with_retries(opts: dict, url: str, alive=None) -> None:
+    """Качает до победы: при обрыве связи заходит снова и продолжает с места обрыва (.part не теряется).
+    Останавливается только на настоящей ошибке (видео удалено, приватное…) или если alive() вернул False."""
+    import time
+
+    import yt_dlp
+    n = 0
+    while True:
+        try:
+            with yt_dlp.YoutubeDL(opts) as y:
+                y.download([url])
+            return
+        except yt_dlp.utils.DownloadError as e:
+            if not any(s in str(e) for s in NET_ERRORS) or (alive and not alive()):
+                raise
+            n += 1
+            print(f"[download] обрыв связи, продолжаю (заход {n + 1})…", flush=True)
+            time.sleep(min(30, 3 * n))
+
+
 def _hook(progress):
     def hook(st):
         if progress and st.get("status") == "downloading":
@@ -57,13 +94,12 @@ def redownload(url: str, pid: str, dl: dict, progress=None) -> Path:
 
     import yt_dlp
     d = pdir(pid)
-    for f in d.glob("source.new.*"):
-        f.unlink(missing_ok=True)
+    (d / "source.new.mp4").unlink(missing_ok=True)     # недокачанные .part не трогаем — с них продолжим
     opts = {"format_sort": format_sort(dl), "merge_output_format": "mp4", "outtmpl": str(d / "source.new.%(ext)s"),
             "quiet": True, "no_warnings": True, "noprogress": True, "progress_hooks": [_hook(progress)],
-            "ffmpeg_location": str(Path(ffbin("ffmpeg")).parent), "concurrent_fragment_downloads": 4}
-    with yt_dlp.YoutubeDL(opts) as y:
-        y.download([url])
+            "ffmpeg_location": str(Path(ffbin("ffmpeg")).parent), "concurrent_fragment_downloads": 4,
+            **net_opts(dl | {"proxy": (load_config().get("download") or {}).get("proxy", "")})}
+    _with_retries(opts, url, alive=d.exists)
     new = d / "source.new.mp4"
     if not new.exists():
         raise RuntimeError("Скачивание не удалось: файл не появился")
@@ -95,15 +131,19 @@ def download(url: str, pid: str, progress=None) -> Path:
         "progress_hooks": [_hook(progress)],
         "ffmpeg_location": str(Path(ffbin("ffmpeg")).parent),
         "concurrent_fragment_downloads": 4,
+        **net_opts(cfg["download"]),
     }
     try:
-        with yt_dlp.YoutubeDL(opts) as y:
-            y.download([url])
+        _with_retries(opts, url, alive=d.exists)
     except Exception:
-        if not out.exists():       # чат мог сломать загрузку — пробуем без него
+        if not out.exists():       # чат мог сломать загрузку — продолжаем без него (скачанное не теряется)
             opts["writesubtitles"] = False
-            with yt_dlp.YoutubeDL(opts) as y:
-                y.download([url])
+            try:
+                _with_retries(opts, url, alive=d.exists)
+            except yt_dlp.utils.DownloadError as e:
+                raise RuntimeError("Скачивание остановилось. Уже скачанное сохранено — «⟳ Продолжить скачивание» "
+                                   "продолжит с того же места. Если YouTube не пускает — включи VPN или "
+                                   "укажи прокси в настройках.\n" + str(e).replace("ERROR: ", "")[-300:]) from None
     if not out.exists():
         cands = [f for f in d.glob("source.*") if f.suffix in (".mkv", ".webm", ".mov", ".ts")]
         if not cands:
@@ -118,7 +158,8 @@ def fetch_chat(url: str, pid: str) -> int:
     import yt_dlp
     d = pdir(pid)
     opts = {"skip_download": True, "writesubtitles": True, "subtitleslangs": ["live_chat", "rechat"],
-            "outtmpl": str(d / "source.%(ext)s"), "quiet": True, "no_warnings": True, "noprogress": True}
+            "outtmpl": str(d / "source.%(ext)s"), "quiet": True, "no_warnings": True, "noprogress": True,
+            **net_opts()}
     with yt_dlp.YoutubeDL(opts) as y:
         y.download([url])
     (d / "chat.json").unlink(missing_ok=True)
